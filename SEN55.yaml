@@ -1,0 +1,245 @@
+external_components:
+  - source: github://pr#6209
+    components: [ waveshare_epaper ]
+
+esphome:
+  name: air-quality-sensor
+  friendly_name: Air Quality Sensor
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "yourkey"
+
+ota:
+  password: "yourpassword"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Air-Quality-Sensor"
+    password: yourpwd
+
+captive_portal:
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+button:
+  - platform: restart
+    name: "AQS - Restart"
+  - platform: template
+    name: "AQS - Refresh Screen"
+    entity_category: config
+    on_press:
+      - script.execute: update_screen
+
+i2c:
+  sda: 6
+  scl: 7
+  scan: true
+
+spi:
+  clk_pin: 8
+  mosi_pin: 9
+
+sensor:
+  - platform: sen5x
+    id: AQS
+    pm_1_0:
+      name: " PM <1µm Weight concentration"
+      id: pm_1_0
+      accuracy_decimals: 1
+    pm_2_5:
+      name: " PM <2.5µm Weight concentration"
+      id: pm_2_5
+      accuracy_decimals: 1
+    pm_4_0:
+      name: " PM <4µm Weight concentration"
+      id: pm_4_0
+      accuracy_decimals: 1
+    pm_10_0:
+      name: " PM <10µm Weight concentration"
+      id: pm_10_0
+      accuracy_decimals: 1
+    temperature:
+      name: "Temperature"
+      id: temp
+      accuracy_decimals: 1
+    humidity:
+      name: "Humidity"
+      id: humidity
+      accuracy_decimals: 0
+    voc:
+      name: "VOC"
+      id: voc
+      algorithm_tuning:
+        index_offset: 100
+        learning_time_offset_hours: 12
+        learning_time_gain_hours: 12
+        gating_max_duration_minutes: 180
+        std_initial: 50
+        gain_factor: 230
+    nox:
+      name: "NOX"
+      id: nox
+      algorithm_tuning:
+        index_offset: 100
+        learning_time_offset_hours: 12
+        learning_time_gain_hours: 12
+        gating_max_duration_minutes: 180
+        std_initial: 50
+        gain_factor: 230
+    temperature_compensation:
+      offset: 0
+      normalized_offset_slope: 0
+      time_constant: 0
+    acceleration_mode: low
+    store_baseline: true
+    #address: 0x69
+    update_interval: 10s
+
+font:
+  - file: "gfonts://Inter@700"
+    id: small
+    size: 48
+  - file: "gfonts://Inter@700"
+    id: tiny
+    size: 24
+  
+  # Include Material Design Icons font
+  # Thanks to https://community.home-assistant.io/t/display-materialdesign-icons-on-esphome-attached-to-screen/199790/16
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_mdi_small
+    size: 30
+    glyphs: &mdi-glyphs
+      - "\U000F0510" # mdi-thermometer-lines
+      - "\U000F058E" # mdi-water-percent
+      - "\U000F0D7C" # mdi-grain
+      - "\U000F0B1D" # mdi-alpha-v-box
+      - "\U000F0B15" # mdi-alpha-n-box
+
+script:
+  - id: update_screen
+    then:
+      - component.update: screen
+
+#Make Temp Graph
+graph:
+  - id: voc_graph
+    duration: 12h
+    width: 200
+    height: 30
+    border: True
+    traces:
+      - sensor: voc
+        line_thickness: 2
+  - id: nox_graph
+    duration: 12h
+    width: 200
+    height: 30
+    border: True
+    traces:
+      - sensor: nox
+        line_thickness: 2
+  - id: pm1_graph
+    duration: 12h
+    width: 200
+    height: 30
+    border: True
+    traces:
+      - sensor: pm_1_0
+        line_thickness: 2
+  - id: pm25_graph
+    duration: 12h
+    width: 200
+    height: 30
+    border: True
+    traces:
+      - sensor: pm_2_5
+        line_thickness: 2
+  - id: pm4_graph
+    duration: 12h
+    width: 200
+    height: 30
+    border: True
+    traces:
+      - sensor: pm_4_0
+        line_thickness: 2
+  - id: pm10_graph
+    duration: 12h
+    width: 200
+    height: 30
+    border: True
+    traces:
+      - sensor: pm_10_0
+        line_thickness: 2
+  
+
+#Display Setup
+display:
+  - platform: waveshare_epaper
+    cs_pin: 20
+    dc_pin: 21  
+    busy_pin: 
+      number: 5
+      inverted: False
+    reset_pin: 10
+    full_update_every: 1
+    reset_duration: 2ms
+    model: 4.20in-v2
+    id: screen
+    update_interval: 15min
+    lambda: |-
+      //Date and Time
+      it.strftime(200, 0, id(tiny), TextAlign::CENTER_HORIZONTAL, "%A %B %d, %Y", id(homeassistant_time).now());
+      it.strftime(200, 25, id(small), TextAlign::CENTER_HORIZONTAL, "%I:%M%p", id(homeassistant_time).now()); 
+
+      //Temp and Humidity
+      float fahrenheit = id(temp).state * 9.0 / 5.0 + 32;     
+      it.printf(70, 80, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL,  "\U000F0510"); 
+      it.printf(280, 80, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL, "\U000F058E"); 
+      it.printf(120, 80, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.1f°", fahrenheit);
+      it.printf(330, 80, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.1f%%", id(humidity).state);
+
+      //VOC and NOX
+      it.printf(70, 110, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL, "\U000F0B1D"); 
+      it.printf(120, 110, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.0f", id(voc).state);
+      it.graph(0, 140, id(voc_graph)); 
+
+      it.printf(280, 110, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL, "\U000F0B15"); 
+      it.printf(330, 110, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.0f", id(nox).state);
+      it.graph(200, 140, id(nox_graph)); 
+
+      //Particulates
+      it.printf(50, 170, id(tiny), TextAlign::CENTER_HORIZONTAL, "PM 1.0");
+      it.printf(110, 170, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL, "\U000F0D7C");
+      it.printf(150, 170, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.1f", id(pm_1_0).state);
+      it.graph(0, 200, id(pm1_graph)); 
+
+      it.printf(260, 170, id(tiny), TextAlign::CENTER_HORIZONTAL, "PM 2.5");
+      it.printf(320, 170, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL, "\U000F0D7C");
+      it.printf(360, 170, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.1f", id(pm_2_5).state);
+      it.graph(200, 200, id(pm25_graph)); 
+
+      it.printf(50, 230, id(tiny), TextAlign::CENTER_HORIZONTAL, "PM 4.0"); 
+      it.printf(110, 230, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL, "\U000F0D7C"); 
+      it.printf(150, 230, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.1f", id(pm_4_0).state);
+      it.graph(0, 260, id(pm4_graph));
+
+      it.printf(260, 230, id(tiny), TextAlign::CENTER_HORIZONTAL, "PM 10"); 
+      it.printf(320, 230, id(font_mdi_small), TextAlign::CENTER_HORIZONTAL, "\U000F0D7C"); 
+      it.printf(360, 230, id(tiny), TextAlign::CENTER_HORIZONTAL, "%.1f", id(pm_10_0).state);
+      it.graph(200, 260, id(pm10_graph));
